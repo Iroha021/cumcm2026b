@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from . import geom
+from . import geom, routing, tour
 
 Point = Tuple[float, float]
 
@@ -264,9 +264,12 @@ class Policy(object):
         self.arena_r = float(self.env["arena_radius_m"])
         self.clear_ready_d = float(self.pol["clear_ready_region_diameter_m"])
         self.absent_thr = float(self.pol["absent_mass_threshold"])
-        self.measure_cap = int(cfg["budget"].get("max_consecutive_measures_per_stop", 6))
+        self.measure_cap = int(cfg["budget"].get("max_consecutive_measures_per_stop", 20))
         self.clear_radius = float(self.env["clear_radius_m"])
-        self.probe_grid = self._make_probe_grid()
+        self.planner = tour.TourPlanner(cfg, world, cost, logger=logger)
+        self._cur_node = None
+        self._cur_batch: List[int] = []
+        self._cur_reason = ""
         self.measure_streak = 0
         self.last_position: Point = (0.0, 0.0)
         self.q2_cache: Dict[Any, Dict[str, Any]] = {}
@@ -274,44 +277,170 @@ class Policy(object):
         self.clear_attempts: Dict[int, int] = {}
         self.clear_tried_bearings: Dict[int, int] = {}
         self.probe_count: Dict[int, int] = {}
+        self.last_miss_channel: Optional[int] = None   # 上一动作未命中的频道（就地补扫用）
+        self.retry_streak = 0
         self.enable_clear_all = False
 
     # ------------------------------------------------------------ 候选探测点
-    def _make_probe_grid(self) -> List[Point]:
-        """六边形栅格覆盖目标区：任意点都有候选探测点在其 ~s/√3 范围内。
-        间距 s 默认 800 m：保证圆盘内任意源都落在某个候选点 1000 m 内（必然可测）。"""
-        s = float(self.pol.get("probe_grid_spacing_m", 800.0))
-        dy = s * math.sqrt(3.0) / 2.0
-        pts: List[Point] = []
-        ny = int(self.arena_r / dy) + 1
-        nx = int(self.arena_r / s) + 1
-        for iy in range(-ny, ny + 1):
-            y = iy * dy
-            off = (s / 2.0) if (iy % 2) else 0.0
-            for ix in range(-nx, nx + 1):
-                x = ix * s + off
-                if math.hypot(x, y) <= self.arena_r:
-                    pts.append((x, y))
-        return pts
+    # （旧的固定探测栅格已由 tour.TourPlanner 的"覆盖站点"取代）
 
     # --------------------------------------------------------------- 主决策
     def decide(self) -> Action:
+        """滚动巡游：
+            ① 5 m 内直接清除（必然成功，最优先）
+            ② 就地清除（清除点就在当前站点附近，零移动成本）
+            ③ 完成当前站点的批量测量
+            ④ 选下一个巡游节点（覆盖站点 / 已定位源 / 收尾复核点）
+            ⑤ 无节点可做 → 退出
+        """
         w, c = self.world, self.cost
-        # 1) 5 m 内直接清除（最便宜且必然成功）
         act = self._near_direct()
         if act:
             return act
-        # 2) 已可精确定位 → 前去清除
-        act = self._clear_action()
+        act = self._inline_retry()
         if act:
             return act
-        # 3) 信息型探测：在"探哪个频道 / 去哪探"上取单位时间收益最大者
-        act = self._probe_action()
+        act = self._inline_clear()
         if act:
             return act
-        # 4) 无事可做
-        return Action("exit", reason="no_action",
+        for _ in range(12):                      # 允许连续跳过若干"已无价值"的站点
+            act = self._batch_action()
+            if act:
+                return act
+            node = self._select_node()
+            if node is None:
+                return Action("exit", reason="no_action",
+                              meta={"stats": w.stats(), "virtual_time_s": c.virtual_time_s})
+            if node.kind == "clear":
+                return self._clear_action_for(node)
+            # sweep / verify：到站后开始批量；批量为空则跳过该站
+            self._cur_node = node
+            self._cur_batch = [ch for _, ch in
+                               self.planner.batch_channels_at(node.position)]
+            self._cur_reason = node.kind
+            if not self._cur_batch:
+                self.planner.mark_visited(node.position)
+                self._cur_node = None
+                continue
+        return Action("exit", reason="plan_loop",
                       meta={"stats": w.stats(), "virtual_time_s": c.virtual_time_s})
+
+    # ------------------------------------------------------------ 站点批量
+    def _batch_action(self) -> Optional[Action]:
+        if self._cur_node is None:
+            return None
+        pos = self._cur_node.position
+        max_meas = int(self.pol.get("max_measures_per_channel", 20))
+        while self._cur_batch:
+            ch = self._cur_batch.pop(0)
+            if ch in self.world.cleared:
+                continue
+            if self.world.beliefs[ch].n_probes >= max_meas:
+                continue
+            cost = self.cost.predict_measure(pos, ch)["total_s"]
+            return Action("measure", pos, ch, reason=self._cur_reason or "batch",
+                          expected_cost_s=cost,
+                          meta={"station": (round(pos[0], 1), round(pos[1], 1)),
+                                "batch_left": len(self._cur_batch)})
+        self.planner.mark_visited(pos)
+        self._cur_node = None
+        self._cur_batch = []
+        return None
+
+    # ------------------------------------------------------------ 节点选择
+    def _select_node(self):
+        if self._cur_node is not None and self._cur_batch:
+            return None                          # 当前站点还没测完
+        extra = self._extra_stations()
+        nodes = self.planner.build_nodes(self._clear_candidates(), extra_stations=extra)
+        if not nodes:
+            return None
+        ordered = self.planner.order(nodes)
+        return ordered[0] if ordered else None
+
+    def _extra_stations(self) -> List[Point]:
+        """巡游走完覆盖站点后仍不满足条件的频道 → 追加专程补测点：
+
+          · 只有 1 条示向度：用问题二的第二检测点（交会角最优）；
+          · >=2 条但几何太差（不确定度 > clear_ready 阈值）：用 GDOP+120° 补点。
+        """
+        out: List[Point] = []
+        cap = int(self.pol.get("max_dedicated_stations", 6))
+        r_min = float(self.env["recv_radius_min_m"])
+        u_star = float(self.pol.get("u_star", 6.6e5))
+        for ch in self.world.pending():
+            if len(out) >= cap:
+                break
+            b = self.world.beliefs[ch]
+            nb = len(b.bearings)
+            if nb == 0:
+                continue
+            if nb >= 2 and b.uncertainty_m() <= self.clear_ready_d:
+                continue                          # 够准了，只等清除
+            if b.n_probes >= int(self.pol.get("max_measures_per_channel", 20)):
+                continue
+            if nb == 1:
+                P1, th1 = b.bearings[0]
+                key = (round(P1[0], 1), round(P1[1], 1), round(th1, 2))
+                plan = self.q2_cache.get(key)
+                if plan is None:
+                    plan = select_second_point(self.cfg, P1, th1, rng=self.rng,
+                                               directional=(self.mode == "q4"))
+                    self.q2_cache[key] = plan
+                    if self.logger:
+                        self.logger.event("q2", channel=ch, P1=(round(P1[0], 2), round(P1[1], 2)),
+                                          theta=round(th1, 3), second_point=plan["P2"],
+                                          d=round(plan["d"], 1), beta=round(plan["beta"], 1),
+                                          E_D=round(plan["E_D"], 2), pi=round(plan["pi"], 3),
+                                          phi=round(plan["phi"], 1),
+                                          candidate_region=plan["candidate_region"])
+                out.append((float(plan["P2"][0]), float(plan["P2"][1])))
+            else:
+                est = b.point_estimate()
+                if est is None:
+                    continue
+                p = routing.choose_refine_point(est, [q for q, _ in b.bearings], u_star, r_min)
+                if p is not None:
+                    out.append((float(p[0]), float(p[1])))
+        return out
+
+    # ------------------------------------------------------- 就地清除
+    def _inline_retry(self) -> Optional[Action]:
+        """清除未命中后就地补扫。
+
+        未命中只排除掉 20 m 邻域，新的最佳清除点通常离当前位置只有几十米；
+        但如果把它重新塞回巡游队列，就可能被 TSP 排到别的站点之后，
+        一次本该 40 m 的补扫变成几百米转场——实测这正是局间差异（5.4 vs 10.9 km
+        清除里程）的主要来源。因此未命中后优先就地连扫，超过上限才交回巡游。
+        """
+        if self.last_miss_channel is None:
+            return None
+        cap = int(self.pol.get("inline_retry_max", 3))
+        if self.retry_streak >= cap:
+            return None
+        ch = self.last_miss_channel
+        cur = self.cost.position
+        for c, pt, p_succ in self._clear_candidates():
+            if c != ch:
+                continue
+            d = math.hypot(pt[0] - cur[0], pt[1] - cur[1])
+            if d > float(self.pol.get("inline_retry_radius_m", 150.0)):
+                return None
+            cost = self.cost.predict_clear(pt, ch, found=True)["total_s"]
+            return Action("clear", pt, ch, reason="retry_inline", expected_cost_s=cost,
+                          meta={"p_success": round(p_succ, 3), "hop_m": round(d, 1),
+                                "retry": self.retry_streak + 1})
+        return None
+
+    def _inline_clear(self) -> Optional[Action]:
+        """清除点就在脚边（<=60 m）时先清掉，避免为了它专门跑一趟。"""
+        cur = self.cost.position
+        for ch, pt, p_succ in self._clear_candidates():
+            if math.hypot(pt[0] - cur[0], pt[1] - cur[1]) <= 60.0:
+                return self._clear_action_for(
+                    tour.Node("clear", pt, ch, value=0.0, meta={"p_success": p_succ}))
+        return None
+
 
     # ------------------------------------------------------------ 各分支
     def _near_direct(self) -> Optional[Action]:
@@ -323,26 +452,22 @@ class Policy(object):
                           expected_cost_s=cost["total_s"], meta={"guaranteed": True})
         return None
 
-    def _clear_action(self) -> Optional[Action]:
-        """选择要清除的源与清除点。
+    def _clear_candidates(self):
+        """返回 [(channel, 清除点, 一次成功概率)]，供巡游节点使用。
 
-        清除点不用"区域质心"（区域直径 > 40 m 时质心不保证落在 20 m 内），而是
+        清除点不取"区域质心"（区域直径 > 40 m 时质心不保证落在 20 m 内），而是
         直接最大化**后验成功概率**：取 20 m 半径内覆盖粒子数最多的位置。
         每次未命中都会以 |S-P| > 20 的形式收缩后验，于是同一位置不会被重复尝试。
         """
-        p_min = float(self.pol.get("clear_min_success_prob", 0.5))
-        w = self.pol.get("clear_score_weight_s", 40.0)
-        max_attempts = int(self.pol.get("clear_max_attempts_per_channel", 3))
-        span_min = float(self.pol.get("min_bearing_span_deg", 15.0))
-        best = None
+        p_min = float(self.pol.get("clear_min_success_prob", 0.35))
+        max_attempts = int(self.pol.get("clear_max_attempts_per_channel", 6))
+        out = []
         for ch in self.world.pending():
             b = self.world.beliefs[ch]
             if len(b.bearings) < 2:
                 continue
-            # 几何太差（近乎共线）时先补测，别盲目清除
-            if b.direction_span_deg() < span_min:
-                continue
-            # 同一批示向度下最多尝试若干次清除，避免在低置信区域"网格式盲扫"
+            # 同一批示向度下最多尝试若干次清除（每次未命中都会收缩后验与排除点，
+            # 因此重试是有信息的；但不能无限重复，超过上限就转去补几何）
             tried = self.clear_attempts.get(ch, 0)
             mark = self.clear_tried_bearings.get(ch, -1)
             if len(b.bearings) == mark and tried >= max_attempts:
@@ -350,22 +475,34 @@ class Policy(object):
             pt, p_succ = self._best_clear_point(ch)
             if pt is None or p_succ < p_min:
                 continue
-            cost = self.cost.predict_clear(pt, ch, found=True)["total_s"]
-            score = cost + w * (1.0 - p_succ)
-            if best is None or score < best[0]:
-                best = (score, ch, pt, p_succ, cost)
-        if best is None:
-            return None
-        _, ch, pt, p_succ, cost = best
+            out.append((ch, pt, p_succ))
+        return out
+
+    def _clear_action_for(self, node) -> Action:
+        ch = node.channel
+        cost = self.cost.predict_clear(node.position, ch, found=True)["total_s"]
         self.clear_tried_bearings[ch] = len(self.world.beliefs[ch].bearings)
-        return Action("clear", pt, ch, reason="localized", expected_cost_s=cost,
-                      meta={"p_success": round(p_succ, 3),
+        return Action("clear", node.position, ch, reason="localized", expected_cost_s=cost,
+                      meta={"p_success": round(float(node.meta.get("p_success", 0.0)), 3),
                             "uncertainty_m": round(self.world.beliefs[ch].uncertainty_m(), 1)})
 
     def _best_clear_point(self, ch: int):
-        """返回 (清除点, 该点一次成功的后验概率)。"""
+        """返回 (清除点, 该点一次成功的后验概率)。
+
+        清除点 = "以该点为心、半径 20 m 的圆盘覆盖后验质量最多"的位置：
+        粒子云携带真实的距离先验权重（∝ r），比"区域质心"更贴近真源分布；
+        已尝试未命中的点周围不再作为候选，保证每次都换地方。
+        """
         b = self.world.beliefs[ch]
         r = float(self.env["clear_radius_m"])
+        # 区域直径 <= 20 m 时，区域内任意点都在真源 20 m 内 ⇒ 必然一次命中。
+        # 这条是"可证明"的，优先于任何基于粒子云的启发式（粒子云在退化重采样后
+        # 可能漂出可行域，历史上正是它导致了 D=7 m 却连续 3 次清除失败）。
+        reg = b.region()
+        if reg is not None and reg.valid and reg.diameter() <= r:
+            c = reg.centroid()
+            if c is not None:
+                return (float(c[0]), float(c[1])), 1.0
         if b.src is None or b.src["pos"].shape[0] == 0:
             est = b.point_estimate()
             return (est, 0.5) if est else (None, 0.0)
@@ -376,13 +513,24 @@ class Policy(object):
         step = max(r, ext / 30.0)
         xs = np.arange(lo[0], hi[0] + 1e-9, step)
         ys = np.arange(lo[1], hi[1] + 1e-9, step)
-        cand = np.array([(x, y) for x in xs for y in ys], dtype=float)
-        d = np.hypot(cand[:, None, 0] - pos[None, :, 0], cand[:, None, 1] - pos[None, :, 1])
+        cand = [(float(x), float(y)) for x in xs for y in ys]
+        # 已尝试未命中的点周围 0.95r 内不再作为候选（否则会在原地反复空扫）
+        if b.clear_misses:
+            keep = [p for p in cand
+                    if all(math.hypot(p[0] - m[0], p[1] - m[1]) > 0.95 * r
+                           for m in b.clear_misses)]
+            if keep:
+                cand = keep
+        if not cand:
+            est = b.point_estimate()
+            return (est, 0.3) if est else (None, 0.0)
+        arr = np.asarray(cand, dtype=float)
+        d = np.hypot(arr[:, None, 0] - pos[None, :, 0], arr[:, None, 1] - pos[None, :, 1])
         cnt = (d <= r).sum(axis=1)
         if cnt.size == 0:
             return None, 0.0
         i = int(np.argmax(cnt))
-        return (float(cand[i, 0]), float(cand[i, 1])), float(cnt[i]) / float(pos.shape[0])
+        return (float(arr[i, 0]), float(arr[i, 1])), float(cnt[i]) / float(pos.shape[0])
 
     # ---------------------------------------------------------------- 反馈
     def q2_second_count(self, ch: int) -> int:
@@ -406,147 +554,18 @@ class Policy(object):
                 self.clear_attempts[action.channel] = self.clear_attempts.get(action.channel, 0) + 1
                 if getattr(outcome, "result", None) == "success":
                     self.clear_queue.pop(action.channel, None)
+                    self.last_miss_channel = None
+                    self.retry_streak = 0
                 else:
+                    # 未命中：记录频道与连扫次数，供"就地补扫"优先就地连扫
+                    self.last_miss_channel = action.channel
+                    self.retry_streak = (self.retry_streak + 1
+                                         if action.reason == "retry_inline" else 1)
                     if self.logger:
                         self.logger.event("clear_miss", channel=action.channel,
                                           pos=action.position,
-                                          attempts=self.clear_attempts[action.channel])
-
-    def _probe_action(self) -> Optional[Action]:
-        """信息型选点：在"探测哪个频道"和"去哪探测"上做统一的单位时间收益最大化。
-
-        候选动作打分  score = value × gain / (cost + smooth)
-            gain  = 拿到一条新示向度的概率
-                    · 单示向度频道：问题二给出的第二点，gain = π(detect)
-                    · 未见频道：gain = p_exist × P(该点能测到)
-            value = 该探测对最终清除的贡献权重（第二点把"半成品"变成"可清除"，权重更高）
-            cost  = 移动耗时 + 检测 5 s + 换频 1 s
-        """
-        w, c = self.world, self.cost
-        cur = c.position
-        smooth = float(self.pol.get("probe_cost_smooth_s", 10.0))
-        v_discover = float(self.pol.get("value_discover", 0.6))
-        v_second = float(self.pol.get("value_second_point", 1.0))
-        speed = float(self.env["speed_mps"])
-        dt_action = float(self.env["detect_s"])
-        dt_switch = float(self.env["switch_s"])
-        budget_s = float(self.cfg["budget"].get("real_time_safety_margin_s", 25.0)) * 0.0 + 1e9
-
-        best = None  # (score, Action)
-
-        def consider(score, action):
-            nonlocal best
-            if best is None or score > best[0]:
-                best = (score, action)
-
-        # 单频道测量次数上限：定向源无法被"证明不存在"，必须防止无限投入
-        cap_all = int(self.pol.get("max_measures_per_channel", 10))
-        budget_ok = {ch for ch in w.pending() if self.probe_count.get(ch, 0) < cap_all}
-        local_allowed = self.measure_streak < self.measure_cap
-
-        # ---- 候选 A：单示向度频道 → 问题二的第二检测点
-        for ch in w.pending():
-            if ch not in budget_ok:
-                continue
-            b = w.beliefs[ch]
-            if len(b.bearings) != 1:
-                continue
-            P1, th1 = b.bearings[0]
-            key = (round(P1[0], 1), round(P1[1], 1), round(th1, 2))
-            plan = self.q2_cache.get(key)
-            if plan is None:
-                plan = select_second_point(self.cfg, P1, th1, rng=self.rng,
-                                           directional=(self.mode == "q4"))
-                self.q2_cache[key] = plan
-                if self.logger:
-                    self.logger.event("q2", channel=ch, P1=(round(P1[0], 2), round(P1[1], 2)),
-                                      theta=round(th1, 3), second_point=plan["P2"],
-                                      d=round(plan["d"], 1), beta=round(plan["beta"], 1),
-                                      E_D=round(plan["E_D"], 2), pi=round(plan["pi"], 3),
-                                      phi=round(plan["phi"], 1),
-                                      candidate_region=plan["candidate_region"])
-            P2 = plan["P2"]
-            travel = math.hypot(P2[0] - cur[0], P2[1] - cur[1]) / speed
-            cost = travel + dt_action + dt_switch
-            gain = max(0.0, float(plan["pi"])) * float(b.p_exist)
-            if gain <= 1e-6:
-                continue
-            consider(v_second * gain / (cost + smooth),
-                     Action("measure", P2, ch, reason="q2_second_point",
-                            expected_cost_s=cost,
-                            meta={"E_D": round(plan["E_D"], 2), "pi": round(plan["pi"], 3),
-                                  "d": round(plan["d"], 1), "beta": round(plan["beta"], 1)}))
-
-        # ---- 候选 B：从未见过的频道 → 在候选探测点里选收益/代价最高的
-        unseen = [ch for ch in w.pending() if len(w.beliefs[ch].bearings) == 0 and ch in budget_ok]
-        dcap = int(self.pol.get("max_discover_probes_per_channel", 8))
-        unseen = [ch for ch in unseen if self.probe_count.get(ch, 0) < dcap]
-        if unseen:
-            pts = list(self.probe_grid)
-            if local_allowed:
-                pts = [cur] + pts
-            else:
-                # 到达就地测量上限后必须离开当前位置（栅格里正好含当前点，要排掉）
-                pts = [p for p in pts
-                       if math.hypot(p[0] - cur[0], p[1] - cur[1]) > 30.0]
-            if not pts:
-                return best[1] if best else None
-            pts_arr = np.asarray(pts, dtype=float)
-            for ch in unseen:
-                b = w.beliefs[ch]
-                probs = b.detect_prob(pts_arr)
-                pe = b.p_exist
-                if pe <= 1e-4:
-                    continue
-                for i, P in enumerate(pts):
-                    gain = pe * float(probs[i])
-                    if gain <= 1e-4:
-                        continue
-                    travel = math.hypot(P[0] - cur[0], P[1] - cur[1]) / speed
-                    cost = travel + dt_action + dt_switch
-                    consider(v_discover * gain / (cost + smooth),
-                             Action("measure", (float(P[0]), float(P[1])), ch,
-                                    reason="discover", expected_cost_s=cost,
-                                    meta={"p_exist": round(pe, 3),
-                                          "p_detect": round(float(probs[i]), 3)}))
-
-        # ---- 候选 C：已有 >=2 条示向度但还不能可靠清除 → 补一条示向度收紧定位
-        v_refine = float(self.pol.get("value_refine", 0.8))
-        r_min = float(self.env["recv_radius_min_m"])
-        r_max = float(self.env["recv_radius_max_m"])
-        refine_pts = ([cur] + list(self.probe_grid)) if local_allowed else list(self.probe_grid)
-        for ch in w.pending():
-            if ch not in budget_ok:
-                continue
-            b = w.beliefs[ch]
-            if len(b.bearings) < 2:
-                continue
-            est = b.point_estimate()
-            if est is None:
-                continue
-            dirs = [(est[0] - p[0], est[1] - p[1]) for p, _ in b.bearings]
-            for P in refine_pts:
-                d_est = math.hypot(P[0] - est[0], P[1] - est[1])
-                if d_est < 250.0 or d_est > r_min:
-                    continue                       # 太近没意义、太远可能测不到
-                v = (est[0] - P[0], est[1] - P[1])
-                nv = math.hypot(v[0], v[1]) or 1.0
-                worst = 180.0
-                for dv in dirs:
-                    nd = math.hypot(dv[0], dv[1]) or 1.0
-                    c = (v[0] * dv[0] + v[1] * dv[1]) / (nv * nd)
-                    worst = min(worst, math.degrees(math.acos(max(-1.0, min(1.0, c)))))
-                if worst < float(self.pol.get("refine_min_new_angle_deg", 20.0)):
-                    continue                       # 与已有示向度太接近，加了也白加
-                p_det = min(1.0, max(0.0, (r_max - d_est) / (r_max - r_min)))
-                travel = math.hypot(P[0] - cur[0], P[1] - cur[1]) / speed
-                cost = travel + dt_action + dt_switch
-                consider(v_refine * p_det / (cost + smooth),
-                         Action("measure", (float(P[0]), float(P[1])), ch,
-                                reason="refine", expected_cost_s=cost,
-                                meta={"worst_angle": round(worst, 1),
-                                      "d_est": round(d_est, 1)}))
-        return best[1] if best else None
+                                          attempts=self.clear_attempts[action.channel],
+                                          retry=self.retry_streak)
 
     def should_stop(self) -> Optional[str]:
         w = self.world
@@ -555,6 +574,31 @@ class Policy(object):
         if len(self.world.channels) - len(w.cleared) <= len(w.absent(self.absent_thr)):
             return "all_resolved"
         return None
+
+
+def _grid_in_convex(poly: Sequence[Point], step: float, cap: int = 4000) -> List[Point]:
+    """凸多边形内的栅格点（步长 step 米）。"""
+    if len(poly) < 3 or step <= 0:
+        return []
+    xs = [p[0] for p in poly]
+    ys = [p[1] for p in poly]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    if (x1 - x0) / step * (y1 - y0) / step > cap:
+        step = math.sqrt(max(1.0, (x1 - x0) * (y1 - y0) / cap))
+    out: List[Point] = []
+    x = x0
+    while x <= x1 + 1e-9:
+        y = y0
+        while y <= y1 + 1e-9:
+            if _point_in_convex(poly, (x, y)):
+                out.append((x, y))
+            y += step
+        x += step
+    if not out:                                  # 区域太薄，栅格落空 → 用质心
+        cx = sum(xs) / len(xs)
+        cy = sum(ys) / len(ys)
+        out = [(cx, cy)]
+    return out
 
 
 def _point_in_convex(poly: Sequence[Point], p: Point) -> bool:

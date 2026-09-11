@@ -98,9 +98,13 @@ def http_transport(base_url: str, timeout_s: float = 8.0) -> Transport:
 
 
 class SimClient(object):
-    def __init__(self, cfg: Dict[str, Any], logger=None, transport: Optional[Transport] = None):
+    def __init__(self, cfg: Dict[str, Any], logger=None, transport: Optional[Transport] = None,
+                 session_tag: str = ""):
         self.cfg = cfg
         self.logger = logger
+        # request_id 按协议是"当前测试会话内的幂等键"。连续演练时给每次会话加一个短标记，
+        # 万一模拟器的幂等表跨会话保留，也不会把上一局的响应当成新局的响应。
+        self.session_tag = session_tag
         self.base_url = cfg.get("base_url", "http://127.0.0.1:2026")
         self.arena_id = cfg.get("arena_id", "default")
         self.robot_id = cfg["team_id"]
@@ -116,7 +120,8 @@ class SimClient(object):
     # ------------------------------------------------------------- 请求构造
     def _new_request_id(self, kind: str) -> str:
         self._counter[kind] += 1
-        return "%s-%06d" % (kind[0], self._counter[kind])
+        tag = ("-" + self.session_tag) if self.session_tag else ""
+        return "%s%s-%06d" % (kind[0], tag, self._counter[kind])
 
     def _base(self, kind: str, request_id: str) -> Dict[str, Any]:
         return {"arena_id": self.arena_id, "robot_id": self.robot_id, "request_id": request_id}

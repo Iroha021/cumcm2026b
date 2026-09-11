@@ -36,7 +36,8 @@ def load_config(path: str = None) -> Dict[str, Any]:
 
 
 # --------------------------------------------------------------------- 组装
-def build(cfg: Dict[str, Any], transport, mode: str, scenario: str, seed: int, logger):
+def build(cfg: Dict[str, Any], transport, mode: str, scenario: str, seed: int, logger,
+          session_tag: str = ""):
     world = world_mod.World(cfg, mode=scenario, seed=seed)
     cost = CostModel(speed_mps=cfg["env"]["speed_mps"],
                      detect_s=cfg["env"]["detect_s"],
@@ -45,34 +46,63 @@ def build(cfg: Dict[str, Any], transport, mode: str, scenario: str, seed: int, l
                      clear_s=cfg["env"]["clear_s"],
                      start_pos=(0.0, 0.0),
                      start_channel=cfg["env"]["channel_min"])
-    client = SimClient(cfg, logger=logger, transport=transport)
+    client = SimClient(cfg, logger=logger, transport=transport, session_tag=session_tag)
     pol = policy_mod.Policy(cfg, world, cost, logger=logger, mode=scenario, seed=seed)
     runner = Runner(cfg, client, world, cost, pol, logger, mode=mode)
+    if logger is not None:
+        # 参数快照：正式测试只有 3 次机会，事后必须能自证"这局跑的是哪个模式、哪些参数"
+        logger.event("config_snapshot", scenario=scenario, run_mode=mode, seed=seed,
+                     session_tag=session_tag, team_id=cfg["team_id"],
+                     base_url=cfg["base_url"],
+                     cover_radius_m=cfg["policy"].get("cover_radius_m"),
+                     use_greedy_cover=cfg["policy"].get("use_greedy_cover"),
+                     stagger_stations_max=cfg["policy"].get("stagger_stations_max"),
+                     directional_model=(scenario == "q4"))
     return runner, world, client
+
+
+def _new_session_tag(i: int) -> str:
+    return "%04x" % (int(time.time() * 1000) & 0xFFFF ^ (i * 7919) & 0xFFFF)
 
 
 # --------------------------------------------------------------------- 模式
 def cmd_live(cfg, args):
-    logger = RunLogger(os.path.join(cfg["_root"], cfg["logging"]["runs_dir"]),
-                       tag="live", case_code=args.case_code,
-                       echo=bool(cfg["logging"].get("echo", True)))
-    runner, _, _ = build(cfg, None, "live", args.scenario, args.seed, logger)
-    stats = runner.run(enter_wait_s=args.enter_wait)
-    print(json.dumps(stats, ensure_ascii=False, indent=2))
+    """对接官方模拟器。--sessions N 可连续跑 N 局：
+
+    程序会自己等接口出现（连接被拒 = 测试还没开始，属正常），跑完一局落盘后
+    继续等下一局。你只需要在模拟器界面上连点"开始测试"。
+    """
+    sessions = max(1, int(args.sessions))
+    for i in range(sessions):
+        tag = "live-%s%s" % (args.scenario, ("-r%d" % (i + 1)) if sessions > 1 else "")
+        logger = RunLogger(os.path.join(cfg["_root"], cfg["logging"]["runs_dir"]),
+                           tag=tag, case_code=args.case_code,
+                           echo=bool(cfg["logging"].get("echo", True)))
+        runner, _, _ = build(cfg, None, "live", args.scenario, args.seed, logger,
+                             session_tag=_new_session_tag(i))
+        if sessions > 1:
+            print("=== 第 %d/%d 局：等待接口开放（请在模拟器界面点『开始』）===" % (i + 1, sessions),
+                  flush=True)
+        stats = runner.run(enter_wait_s=args.enter_wait)
+        print(json.dumps(stats, ensure_ascii=False, indent=2))
     return 0
 
 
 def cmd_dryrun(cfg, args):
-    sim = shadow_mod.ShadowSim(cfg, mode=args.scenario, seed=args.seed,
-                               n_sources=args.sources)
-    logger = RunLogger(os.path.join(cfg["_root"], cfg["logging"]["runs_dir"]),
-                       tag="dryrun", echo=bool(cfg["logging"].get("echo", True)))
-    runner, world, _ = build(cfg, sim.post, "dryrun", args.scenario, args.seed, logger)
-    stats = runner.run(enter_wait_s=1.0)
-    gt = sim.ground_truth()
-    truth = sum(1 for s in gt["sources"] if s["cleared"])
-    print(json.dumps({"stats": stats, "truth": {"n": gt["n"], "directional": gt["directional"],
-                                                "cleared_truth": truth}}, ensure_ascii=False, indent=2))
+    sessions = max(1, int(args.sessions))
+    for i in range(sessions):
+        seed = args.seed + i
+        sim = shadow_mod.ShadowSim(cfg, mode=args.scenario, seed=seed, n_sources=args.sources)
+        logger = RunLogger(os.path.join(cfg["_root"], cfg["logging"]["runs_dir"]),
+                           tag="dryrun-%s" % args.scenario,
+                           echo=bool(cfg["logging"].get("echo", True)))
+        runner, world, _ = build(cfg, sim.post, "dryrun", args.scenario, seed, logger)
+        stats = runner.run(enter_wait_s=1.0)
+        gt = sim.ground_truth()
+        truth = sum(1 for s in gt["sources"] if s["cleared"])
+        print(json.dumps({"seed": seed, "stats": stats,
+                          "truth": {"n": gt["n"], "directional": gt["directional"],
+                                    "cleared_truth": truth}}, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -144,6 +174,8 @@ def main() -> int:
     ap.add_argument("--sources", type=int, default=None)
     ap.add_argument("--case-code", default="")
     ap.add_argument("--enter-wait", type=float, default=240.0)
+    ap.add_argument("--sessions", type=int, default=1,
+                    help="live/dryrun 连续跑几局（live 下每局需在界面点开始）")
     args = ap.parse_args()
     cfg = load_config(args.config)
     return {"live": cmd_live, "dryrun": cmd_dryrun, "bench": cmd_bench,

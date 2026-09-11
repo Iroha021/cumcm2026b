@@ -138,6 +138,8 @@ class ChannelBelief(object):
         self.cleared = False
         self.bearings: List[Tuple[Point, float]] = []
         self.evidence: List[Dict[str, Any]] = []
+        self.clear_misses: List[Point] = []   # 已尝试但未命中的清除点（避免原地重复尝试）
+        self.n_probes = 0                     # 本频道被测量的次数（用于投入上限）
         self.exist = ExistenceTest(cfg, mode)
         self.n_src = 600
         self.src: Optional[Dict[str, np.ndarray]] = None
@@ -204,6 +206,8 @@ class ChannelBelief(object):
     def observe(self, kind: str, P: Point, svd_deg: Optional[float] = None,
                 clear_ok: Optional[bool] = None) -> None:
         self.evidence.append({"kind": kind, "pos": P, "svd": svd_deg})
+        if kind in ("direction", "near", "no_signal"):
+            self.n_probes += 1
         self.exist.observe(kind, P)
         if kind == "direction":
             self.bearings.append((P, float(svd_deg)))
@@ -224,9 +228,11 @@ class ChannelBelief(object):
         elif kind == "clear":
             if clear_ok:
                 self.cleared = True
-            elif self.src is not None:
-                self._filter_src(self._likelihood_far(
-                    P, self.src["pos"], float(self.env["clear_radius_m"])))
+            else:
+                self.clear_misses.append((float(P[0]), float(P[1])))
+                if self.src is not None:
+                    self._filter_src(self._likelihood_far(
+                        P, self.src["pos"], float(self.env["clear_radius_m"])))
 
     def _filter_src(self, keep: np.ndarray) -> None:
         cur = int(self.src["pos"].shape[0])
@@ -346,6 +352,10 @@ class World(object):
         hi = int(cfg["env"]["channel_max"])
         self.channels = list(range(lo, hi + 1))
         self.pending_thr = float(cfg["policy"].get("absent_mass_threshold", 0.02))
+        # 准度优先：一个频道在被"判无源"之前，必须已经在一个覆盖级站点集合上被测过
+        # （否则远端的源会因为几处无信号就被误判掉）
+        self.min_probes_before_absent = int(
+            cfg["policy"].get("min_probes_before_absent", 8))
         self.beliefs: Dict[int, ChannelBelief] = {
             ch: ChannelBelief(ch, cfg, mode, self.rng) for ch in self.channels}
         self.cleared: List[int] = []
@@ -360,8 +370,14 @@ class World(object):
 
     # ------------------------------------------------------------------ 查询
     def pending(self) -> List[int]:
-        return [ch for ch in self.channels
-                if ch not in self.cleared and self.beliefs[ch].p_exist > self.pending_thr]
+        out = []
+        for ch in self.channels:
+            if ch in self.cleared:
+                continue
+            b = self.beliefs[ch]
+            if b.p_exist > self.pending_thr or b.n_probes < self.min_probes_before_absent:
+                out.append(ch)
+        return out
 
     def absent(self, threshold: float) -> List[int]:
         return [ch for ch in self.channels

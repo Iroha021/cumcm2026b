@@ -7,7 +7,6 @@
     "max_attempts": 4,
     "backoff_s": 0.35
   },
-
   "env": {
     "arena_radius_m": 1800.0,
     "speed_mps": 5.0,
@@ -25,32 +24,42 @@
     "sources_min": 10,
     "sources_max": 16
   },
-
   "budget": {
     "real_time_safety_margin_s": 25.0,
     "max_actions": 4000,
-    "max_consecutive_measures_per_stop": 6
+    "max_consecutive_measures_per_stop": 20
   },
-
   "policy": {
     "clear_ready_region_diameter_m": 60.0,
-    "absent_mass_threshold": 0.01,
+    "absent_mass_threshold": 0.02,
+    "min_probes_before_absent": 8,
     "min_bearing_span_deg": 15.0,
-    "probe_grid_spacing_m": 800.0,
-    "probe_cost_smooth_s": 10.0,
-    "value_discover": 0.6,
+    "cover_radius_m": 1200.0,
+    "sweep_stagger": false,
+    "stagger_stations_max": 3,
+    "batch_max": 20,
+    "verify_max_nodes": 3,
+    "node_value_sweep": 1.0,
+    "node_value_clear": 3.0,
+    "node_value_verify": 0.3,
+    "value_discover": 0.3,
+    "discover_balance_alpha": 0.0,
     "value_second_point": 1.0,
     "value_refine": 0.8,
     "refine_min_new_angle_deg": 20.0,
-    "clear_min_success_prob": 0.5,
+    "max_dedicated_stations": 6,
+    "u_star": 660000.0,
+    "clear_min_success_prob": 0.25,
     "clear_score_weight_s": 40.0,
-    "clear_max_attempts_per_channel": 3,
+    "clear_max_attempts_per_channel": 10,
     "max_discover_probes_per_channel": 12,
     "max_measures_per_channel": 20,
     "prior_exist_prob": 0.65,
-    "directional_model_enabled": true
+    "directional_model_enabled": true,
+    "inline_retry_max": 3,
+    "inline_retry_radius_m": 150.0,
+    "use_greedy_cover": true
   },
-
   "q2": {
     "eta": 0.2,
     "pi_min": 0.9,
@@ -61,7 +70,6 @@
     "beta_step_deg": 10.0,
     "d_step_m": 200.0
   },
-
   "logging": {
     "runs_dir": "runs",
     "echo": true
