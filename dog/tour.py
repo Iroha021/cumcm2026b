@@ -180,6 +180,12 @@ class TourPlanner(object):
                 elif v > 1e-4:
                     out.append((v, ch, "discover"))
             elif p_geo and p_geo > 0:
+                # 档 1.0：定向源的"能不能测到" = 距离条件 × 覆盖条件。
+                # 用 α 后验算该站点落在覆盖半平面内的概率，避免往盲侧白测。
+                p_cov = b.coverage_prob(p)
+                if p_cov <= 1e-3:
+                    continue
+                p_geo = p_geo * p_cov
                 obs = [q for q, _ in b.bearings]
                 if nb == 1:
                     ang = routing.crossing_angle_deg(obs[0], p, est)

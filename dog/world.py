@@ -288,6 +288,21 @@ class ChannelBelief(object):
         """某点能测到本频道信号的概率（用于信息型选点）。"""
         return self.exist.detect_prob(pts)
 
+    def coverage_prob(self, P: Point) -> float:
+        """检测点 P 落在该源"有效覆盖半平面"内的概率（按 α 后验）。
+
+        这是档 1.0 的关键：定向源的"能不能测到" = 距离条件 × 覆盖条件，
+        而粒子云里的 omni/α 就是覆盖条件的后验。全向模式恒为 1。
+        """
+        if self.mode == "q3" or self.src is None or self.src["pos"].shape[0] == 0:
+            return 1.0
+        pos = self.src["pos"]
+        omni = self.src["omni"]
+        al = self.src["alpha"]
+        rel = np.array([P[0], P[1]], dtype=float)[None, :] - pos
+        proj = rel[:, 0] * np.cos(al) + rel[:, 1] * np.sin(al)
+        return float((omni | (proj >= 0.0)).mean())
+
     def region(self) -> Optional[geom.Region]:
         if len(self.bearings) < 2:
             return None
