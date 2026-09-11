@@ -22,7 +22,7 @@ from dog import geom, policy as policy_mod, shadow as shadow_mod, world as world
 from dog.cost import CostModel                                                             # noqa: E402
 from dog.log import RunLogger                                                              # noqa: E402
 from dog.runner import Runner                                                              # noqa: E402
-from dog.sim_client import RejectedError, SimClient                                        # noqa: E402
+from dog.sim_client import SimClient                                                       # noqa: E402
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -83,14 +83,7 @@ def cmd_live(cfg, args):
         if sessions > 1:
             print("=== 第 %d/%d 局：等待接口开放（请在模拟器界面点『开始』）===" % (i + 1, sessions),
                   flush=True)
-        try:
-            stats = runner.run(enter_wait_s=args.enter_wait)
-        except RejectedError as exc:
-            # 上一局 /exit 未能干净收尾时，模拟器会拒绝对下一局的 /enter；
-            # 此时明确告知并继续，而不是抛栈崩掉整组演练（第 6 轮 4 局只跑成 1 局）。
-            print("[跳过本局] 接口拒绝 /enter：%s" % exc, flush=True)
-            print("  请确认模拟器已回到可开始状态后，再点『开始』。", flush=True)
-            continue
+        stats = runner.run(enter_wait_s=args.enter_wait)
         print(json.dumps(stats, ensure_ascii=False, indent=2))
     return 0
 
