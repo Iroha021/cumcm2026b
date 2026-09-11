@@ -335,7 +335,15 @@ class Policy(object):
             ch = self._cur_batch.pop(0)
             if ch in self.world.cleared:
                 continue
-            if self.world.beliefs[ch].n_probes >= max_meas:
+            b = self.world.beliefs[ch]
+            if b.n_probes >= max_meas:
+                continue
+            # 题面明确"同一地点重复测量无增益"：若该频道已在近处测过，这次测量必然是
+            # 同一个 ±1° 读数（固定偏差），纯属白烧 6 s。实测曾出现同一站点同批频道
+            # 被连续重测 8 次，本判据直接消除这类浪费。
+            dr = float(self.pol.get("probe_dedupe_radius_m", 50.0))
+            if any(math.hypot(q[0] - pos[0], q[1] - pos[1]) < dr
+                   for q in getattr(b, "probe_pts", [])):
                 continue
             cost = self.cost.predict_measure(pos, ch)["total_s"]
             return Action("measure", pos, ch, reason=self._cur_reason or "batch",
@@ -407,12 +415,15 @@ class Policy(object):
             if nb == 0:
                 continue
             # 档 6A：已测到方位但定位还不够准（或清除已空挥过）⇒ 搬到近处重测一次。
+            # 关键：**必须先用与站点批量相同的门槛校验这个点**，否则节点会因为"到站后
+            # 无可测频道"被判零价值而永远不被访问（第 6 轮实测：near_fix 打印 40+ 次、
+            # 一次都没执行，本轮修掉）。
             if (self.mode == "q4" and n_near < int(self.pol.get("near_fix_max_nodes", 4))
                     and (self.clear_attempts.get(ch, 0) > 0
                          or b.uncertainty_m() > self.clear_ready_d)):
                 np_ = self._near_fix_point(b, float(self.pol.get("near_fix_dist_m", 280.0)))
-                if np_ is not None:
-                    out.append(np_)
+                if np_ is not None and self._near_point_ok(b, np_):
+                    out.append((np_, ch))
                     n_near += 1
                     if self.logger:
                         self.logger.event("near_fix", channel=ch, P=np_,
@@ -420,6 +431,23 @@ class Policy(object):
                                           unc=round(b.uncertainty_m(), 1),
                                           misses=self.clear_attempts.get(ch, 0))
                     continue
+
+    def _near_point_ok(self, b, P: Point) -> bool:
+        """近距点是否真的会带来一次有效测量（用站点批量的同一套门槛预检）。"""
+        if b.coverage_prob(P) <= 1e-3:
+            return False
+        est = b.point_estimate()
+        if est is None:
+            return False
+        ang = max((routing.crossing_angle_deg(Q, P, est) for Q, _ in b.bearings),
+                  default=0.0)
+        if ang < 20.0:
+            return False
+        g0 = b.probe_gap_deg()
+        g1 = b.gap_with(P)
+        if g0 is not None and g1 is not None and (g0 - g1) < 10.0:
+            return False
+        return True
             if nb >= 2 and b.uncertainty_m() <= self.clear_ready_d:
                 continue                          # 够准了，只等清除
             if b.n_probes >= int(self.pol.get("max_measures_per_channel", 20)):

@@ -128,8 +128,17 @@ class TourPlanner(object):
             v, info = self._station_value(p)
             if v > 1e-4:
                 nodes.append(Node("sweep", p, value=self.v_sweep * v, meta=info))
-        for p in (extra_stations or []):
+        for item in (extra_stations or []):
+            # 支持两种形式：Point，或 (Point, 强制频道)——后者（近距精定位点）即使站点
+            # 价值偏低也要保留，因为它是目前唯一能让该频道达到 GDOP 门槛的手段。
+            if isinstance(item, tuple) and len(item) == 2:
+                p, force_ch = item
+            else:
+                p, force_ch = item, None
             v, info = self._station_value(p)
+            if force_ch is not None:
+                v = max(v, float(self.cfg["policy"].get("near_fix_node_value", 2.5)))
+                info = dict(info, near_fix=True, force_channel=force_ch)
             if v > 1e-4:
                 nodes.append(Node("sweep", p, value=self.v_sweep * v,
                                   meta=dict(info, dedicated=True)))
