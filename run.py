@@ -32,6 +32,10 @@ def load_config(path: str = None) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as fh:
         cfg = json.load(fh)
     cfg["_root"] = ROOT
+    # 队号不写进仓库：优先取环境变量 CUMCM_TEAM_ID（config.json 里是 YOUR_TEAM_ID 占位符）
+    env_id = os.environ.get("CUMCM_TEAM_ID")
+    if env_id:
+        cfg["team_id"] = env_id.strip()
     return cfg
 
 
@@ -178,6 +182,11 @@ def main() -> int:
                     help="live/dryrun 连续跑几局（live 下每局需在界面点开始）")
     args = ap.parse_args()
     cfg = load_config(args.config)
+    _tid = cfg.get("team_id") or ""
+    if args.command == "live" and not (_tid.isdigit() and len(_tid) == 12):
+        print("队号未设置或不是 12 位数字：config.json 里是占位符 %r。" % _tid)
+        print('请先执行  $env:CUMCM_TEAM_ID="<12 位队号>"  再运行 live（也可直接改 config.json）。')
+        return 2
     return {"live": cmd_live, "dryrun": cmd_dryrun, "bench": cmd_bench,
             "q1": cmd_q1, "q2": cmd_q2, "selftest": cmd_selftest}[args.command](cfg, args)
 
