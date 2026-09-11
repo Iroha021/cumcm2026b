@@ -467,17 +467,40 @@ class Policy(object):
         每次未命中都会以 |S-P| > 20 的形式收缩后验，于是同一位置不会被重复尝试。
         """
         p_min = float(self.pol.get("clear_min_success_prob", 0.35))
+        p_min_stuck = float(self.pol.get("clear_min_success_prob_stuck", 0.06))
         max_attempts = int(self.pol.get("clear_max_attempts_per_channel", 6))
+        max_stuck = int(self.pol.get("clear_max_attempts_stuck", 6))
+        stuck_after = int(self.pol.get("clear_stuck_after_probes", 8))
         out = []
         for ch in self.world.pending():
             b = self.world.beliefs[ch]
-            if len(b.bearings) < 2:
+            nb = len(b.bearings)
+            if nb < 1:
                 continue
             # 同一批示向度下最多尝试若干次清除（每次未命中都会收缩后验与排除点，
             # 因此重试是有信息的；但不能无限重复，超过上限就转去补几何）
             tried = self.clear_attempts.get(ch, 0)
             mark = self.clear_tried_bearings.get(ch, -1)
-            if len(b.bearings) == mark and tried >= max_attempts:
+            if nb == 1:
+                # 档 4：只有一条示向度时，**不必**再等第二条——源被已知的
+                # R ≤ 1500 m 截断在一条有界细长条上（长约 ≤1500 m、宽
+                # ≤ 2·1500·tan1° ≈ 52 m），而清除半径 20 m 与覆盖角无关，
+                # 所以可以沿这条细条直接扫掠。每次未命中都以 |S−P| > 20 m
+                # 收缩后验并排除该点，于是下一次尝试自动沿条带前移（有信息、
+                # 不是原地白试）。这正对应诊断里"只有 1 条示向度、已测 16–20
+                # 次仍无第二条"的 13–15% 定向源（B 类）。
+                if b.n_probes < stuck_after:
+                    continue                      # 还年轻，先去补几何更划算
+                if tried >= max_stuck:
+                    continue                      # 扫掠预算上限，止损
+                pt, p_succ = self._best_clear_point(ch)
+                if pt is None or p_succ < p_min_stuck:
+                    continue
+                left = max(1, max_stuck - tried)
+                cum = 1.0 - (1.0 - p_succ) ** left   # 整段扫掠的累计把握
+                out.append((ch, pt, max(p_succ, cum)))
+                continue
+            if tried >= max_attempts and nb == mark:
                 continue
             pt, p_succ = self._best_clear_point(ch)
             if pt is None or p_succ < p_min:
