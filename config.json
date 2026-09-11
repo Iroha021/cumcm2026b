@@ -1,0 +1,69 @@
+{
+  "team_id": "202606074008",
+  "base_url": "http://127.0.0.1:2026",
+  "arena_id": "default",
+  "http_timeout_s": 8.0,
+  "retry": {
+    "max_attempts": 4,
+    "backoff_s": 0.35
+  },
+
+  "env": {
+    "arena_radius_m": 1800.0,
+    "speed_mps": 5.0,
+    "detect_s": 5.0,
+    "switch_s": 1.0,
+    "optical_s": 3.0,
+    "clear_s": 5.0,
+    "near_radius_m": 5.0,
+    "clear_radius_m": 20.0,
+    "bearing_error_deg": 1.0,
+    "recv_radius_min_m": 1000.0,
+    "recv_radius_max_m": 1500.0,
+    "channel_min": 1,
+    "channel_max": 20,
+    "sources_min": 10,
+    "sources_max": 16
+  },
+
+  "budget": {
+    "real_time_safety_margin_s": 25.0,
+    "max_actions": 4000,
+    "max_consecutive_measures_per_stop": 6
+  },
+
+  "policy": {
+    "clear_ready_region_diameter_m": 60.0,
+    "absent_mass_threshold": 0.01,
+    "min_bearing_span_deg": 15.0,
+    "probe_grid_spacing_m": 800.0,
+    "probe_cost_smooth_s": 10.0,
+    "value_discover": 0.6,
+    "value_second_point": 1.0,
+    "value_refine": 0.8,
+    "refine_min_new_angle_deg": 20.0,
+    "clear_min_success_prob": 0.5,
+    "clear_score_weight_s": 40.0,
+    "clear_max_attempts_per_channel": 3,
+    "max_discover_probes_per_channel": 12,
+    "max_measures_per_channel": 20,
+    "prior_exist_prob": 0.65,
+    "directional_model_enabled": true
+  },
+
+  "q2": {
+    "eta": 0.2,
+    "pi_min": 0.9,
+    "phi_min_deg": 15.0,
+    "d_min_m": 200.0,
+    "d_max_m": 1500.0,
+    "n_mc": 400,
+    "beta_step_deg": 10.0,
+    "d_step_m": 200.0
+  },
+
+  "logging": {
+    "runs_dir": "runs",
+    "echo": true
+  }
+}

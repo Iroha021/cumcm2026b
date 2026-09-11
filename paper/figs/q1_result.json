@@ -1,0 +1,135 @@
+{
+ "crossing_angle_sweep": [
+  {
+   "phi_deg": 10,
+   "diameter_m": 400.43,
+   "D_sin_phi_over_2delta_r": 1.992
+  },
+  {
+   "phi_deg": 15,
+   "diameter_m": 267.38,
+   "D_sin_phi_over_2delta_r": 1.9825
+  },
+  {
+   "phi_deg": 30,
+   "diameter_m": 134.84,
+   "D_sin_phi_over_2delta_r": 1.9315
+  },
+  {
+   "phi_deg": 45,
+   "diameter_m": 91.2,
+   "D_sin_phi_over_2delta_r": 1.8474
+  },
+  {
+   "phi_deg": 60,
+   "diameter_m": 69.8,
+   "D_sin_phi_over_2delta_r": 1.7317
+  },
+  {
+   "phi_deg": 75,
+   "diameter_m": 57.33,
+   "D_sin_phi_over_2delta_r": 1.5864
+  },
+  {
+   "phi_deg": 90,
+   "diameter_m": 49.39,
+   "D_sin_phi_over_2delta_r": 1.4148
+  },
+  {
+   "phi_deg": 105,
+   "diameter_m": 57.38,
+   "D_sin_phi_over_2delta_r": 1.5877
+  },
+  {
+   "phi_deg": 120,
+   "diameter_m": 69.88,
+   "D_sin_phi_over_2delta_r": 1.7338
+  },
+  {
+   "phi_deg": 150,
+   "diameter_m": 135.46,
+   "D_sin_phi_over_2delta_r": 1.9403
+  }
+ ],
+ "coverage_counterexample": {
+  "vertices": [
+   [
+    0.0,
+    0.0
+   ],
+   [
+    41.32,
+    0.0
+   ],
+   [
+    20.66,
+    35.79
+   ]
+  ],
+  "diameter_m": 41.325,
+  "diameter_circle_radius_m": 20.663,
+  "required_radius_m": 35.786,
+  "required_over_D": 0.866,
+  "covered": false,
+  "min_enclosing_circle_radius_m": 23.858,
+  "mec_over_D": 0.5773,
+  "jung_bound_radius_over_D": 0.5774,
+  "excess_m": 15.123
+ },
+ "random_regions": [
+  {
+   "n_stations": 2,
+   "n_vertices": 3,
+   "diameter_m": 1264.664,
+   "covered_by_diameter_circle": true,
+   "mec_radius_m": 632.332,
+   "ratio_mec_over_halfD": 1.0,
+   "jung_bound": 1.1547
+  },
+  {
+   "n_stations": 2,
+   "n_vertices": 4,
+   "diameter_m": 251.687,
+   "covered_by_diameter_circle": true,
+   "mec_radius_m": 125.844,
+   "ratio_mec_over_halfD": 1.0,
+   "jung_bound": 1.1547
+  },
+  {
+   "n_stations": 2,
+   "n_vertices": 4,
+   "diameter_m": 181.582,
+   "covered_by_diameter_circle": true,
+   "mec_radius_m": 90.791,
+   "ratio_mec_over_halfD": 1.0,
+   "jung_bound": 1.1547
+  },
+  {
+   "n_stations": 4,
+   "n_vertices": 6,
+   "diameter_m": 68.858,
+   "covered_by_diameter_circle": true,
+   "mec_radius_m": 34.429,
+   "ratio_mec_over_halfD": 1.0,
+   "jung_bound": 1.1547
+  },
+  {
+   "n_stations": 4,
+   "n_vertices": 4,
+   "diameter_m": 42.119,
+   "covered_by_diameter_circle": true,
+   "mec_radius_m": 21.06,
+   "ratio_mec_over_halfD": 1.0,
+   "jung_bound": 1.1547
+  },
+  {
+   "n_stations": 3,
+   "n_vertices": 4,
+   "diameter_m": 133.541,
+   "covered_by_diameter_circle": true,
+   "mec_radius_m": 66.771,
+   "ratio_mec_over_halfD": 1.0,
+   "jung_bound": 1.1547
+  }
+ ]
+}
