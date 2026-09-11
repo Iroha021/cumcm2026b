@@ -368,7 +368,14 @@ class Policy(object):
         cap = int(self.pol.get("max_dedicated_stations", 6))
         r_min = float(self.env["recv_radius_min_m"])
         u_star = float(self.pol.get("u_star", 6.6e5))
+        # 档 3A：先安排"必然存在、只缺第二条示向度"的频道（见 World.second_point_channels），
+        # 它们每个节点都直接对应一个可清除的真实源；再安排常规的 pending 频道补测点。
+        chans = self.world.second_point_channels(
+            int(self.pol.get("max_second_point_nodes", 3)))
         for ch in self.world.pending():
+            if ch not in chans:
+                chans.append(ch)
+        for ch in chans:
             if len(out) >= cap:
                 break
             b = self.world.beliefs[ch]

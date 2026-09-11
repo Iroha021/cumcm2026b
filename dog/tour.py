@@ -44,6 +44,9 @@ class TourPlanner(object):
         self.world = world
         self.cost = cost
         self.logger = logger
+        self.mode = getattr(world, "mode", "q3")
+        self.gap_gain_deg = float(cfg["policy"].get("gap_gain_deg", 10.0))
+        self.gap_gain_after_probes = int(cfg["policy"].get("gap_gain_after_probes", 3))
         pol = cfg["policy"]
         env = cfg["env"]
         self.arena_r = float(env["arena_radius_m"])
@@ -158,7 +161,14 @@ class TourPlanner(object):
         r_min, r_max = self.r_min, self.r_max
         u_star = float(self.cfg["policy"].get("u_star", 6.6e5))
         max_meas = int(self.cfg["policy"].get("max_measures_per_channel", 20))
-        for ch in w.pending():
+        chans = list(w.pending())
+        if self.mode == "q4":
+            # 档 3A：专程第二点节点到站后必须真的测这个频道，否则该节点价值为 0 会被丢弃。
+            for ch in w.second_point_channels(
+                    int(self.cfg["policy"].get("max_second_point_nodes", 3))):
+                if ch not in chans:
+                    chans.append(ch)
+        for ch in chans:
             b = w.beliefs[ch]
             if b.n_probes >= max_meas:
                 continue
@@ -186,19 +196,32 @@ class TourPlanner(object):
                 if p_cov <= 1e-3:
                     continue
                 p_geo = p_geo * p_cov
+                # 档 3C（q4）：只保留能压缩"最大角间隙"的测量点。
+                # 否则就是在源的同一侧反复白测——诊断显示 B 类频道 32/37 只有 1 条
+                # 示向度却已测 16-20 次、C 类测 16 次仍无方位，测量预算被整段烧光。
+                gap_gain = 1.0
+                if self.mode == "q4":
+                    g0 = b.probe_gap_deg()
+                    g1 = b.gap_with(p)
+                    if g0 is not None and g1 is not None:
+                        gap_gain = max(0.0, g0 - g1)
+                        if (gap_gain < self.gap_gain_deg
+                                and b.n_probes >= self.gap_gain_after_probes):
+                            continue          # 测了也白测，把时间留给别的源
                 obs = [q for q, _ in b.bearings]
                 if nb == 1:
                     ang = routing.crossing_angle_deg(obs[0], p, est)
                     if ang >= self.min_angle:
                         out.append((float(self.cfg["policy"].get("value_second_point", 1.0))
-                                    * p_geo, ch, "triangulate"))
+                                    * p_geo * (1.0 + 0.005 * gap_gain), ch, "triangulate"))
                 else:
                     u_before = routing.best_pair_gdop(obs, est)
                     u_after = min(u_before, min(routing.gdop(o, p, est) for o in obs))
                     if u_after < u_before * 0.985:
                         gain = (u_before - u_after) / max(u_before, 1.0)
                         out.append((float(self.cfg["policy"].get("value_refine", 0.8))
-                                    * p_geo * (0.4 + 3.0 * gain), ch, "refine"))
+                                    * p_geo * (0.4 + 3.0 * gain)
+                                    * (1.0 + 0.005 * gap_gain), ch, "refine"))
         out.sort(key=lambda t: -t[0])
         cap = int(self.cfg["policy"].get("batch_max", 20))
         if keep_top is not None:

@@ -140,6 +140,7 @@ class ChannelBelief(object):
         self.evidence: List[Dict[str, Any]] = []
         self.clear_misses: List[Point] = []   # 已尝试但未命中的清除点（避免原地重复尝试）
         self.n_probes = 0                     # 本频道被测量的次数（用于投入上限）
+        self.probe_pts: List[Point] = []      # 本频道全部探测点（含无信号）→ 判断盲区
         self.exist = ExistenceTest(cfg, mode)
         self.n_src = 600
         self.src: Optional[Dict[str, np.ndarray]] = None
@@ -208,6 +209,7 @@ class ChannelBelief(object):
         self.evidence.append({"kind": kind, "pos": P, "svd": svd_deg})
         if kind in ("direction", "near", "no_signal"):
             self.n_probes += 1
+            self.probe_pts.append((float(P[0]), float(P[1])))
         self.exist.observe(kind, P)
         if kind == "direction":
             self.bearings.append((P, float(svd_deg)))
@@ -342,6 +344,56 @@ class ChannelBelief(object):
                 angles.append(geom.angle_diff_deg(t1, b1))
         return max(angles) if angles else 0.0
 
+    # ------------------------------------------------- 探测方位张角（Q4 盲区）
+    def _probe_frame(self):
+        """探测点的参考点 S（有位置后验则用其估计，否则用探测点质心）与方位集合。"""
+        pts = self.probe_pts
+        if not pts:
+            return None, []
+        est = self.point_estimate()
+        if est is not None:
+            S = (float(est[0]), float(est[1]))
+        else:
+            S = (sum(q[0] for q in pts) / len(pts), sum(q[1] for q in pts) / len(pts))
+        angs = sorted(math.degrees(math.atan2(q[1] - S[1], q[0] - S[0])) % 360.0
+                      for q in pts)
+        return S, angs
+
+    @staticmethod
+    def _max_gap(angs) -> Optional[float]:
+        if not angs:
+            return None
+        if len(angs) == 1:
+            return 360.0                      # 只有一个方向 ⇒ 盲区完全未被排除
+        best = 0.0
+        for i in range(len(angs)):
+            g = (angs[(i + 1) % len(angs)] - angs[i]) % 360.0
+            best = max(best, g)
+        return float(best)
+
+    def probe_gap_deg(self) -> Optional[float]:
+        """当前全部探测点相对源的**最大角间隙**（度）。
+
+        定向源盲区是过源点的固定半平面：间隙 ≥ 180° ⇒ 可能全部探测点都在盲区
+        （诊断：这些源最近探测点仅 500 m ≪ R 却从未被测到）；间隙 < 180° ⇒ 任何
+        半平面必含一个探测点 ⇒ 距离一满足就必被测到。
+        """
+        _, angs = self._probe_frame()
+        return self._max_gap(angs)
+
+    def gap_with(self, P: Point) -> Optional[float]:
+        """把 P 当作新探测点后，最大角间隙变成多少（用于筛掉"白测点"）。
+
+        若在某点测量并不能压缩最大角间隙，就是在源的同一侧反复试探——诊断显示
+        B 类频道 32/37 只有 1 条示向度却已测 16-20 次、C 类测 16 次仍无方位，
+        全是这种浪费（每次测量 ~6 s 加移动，信息增益为零）。
+        """
+        S, angs = self._probe_frame()
+        if S is None:
+            return None
+        a = math.degrees(math.atan2(P[1] - S[1], P[0] - S[0])) % 360.0
+        return self._max_gap(sorted(angs + [a]))
+
     def alpha_stats(self):
         """定向方向的后验（Q4）：存活粒子中定向源的角度均值与集中度。"""
         if self.src is None or self.mode == "q3":
@@ -393,6 +445,26 @@ class World(object):
             if b.p_exist > self.pending_thr or b.n_probes < self.min_probes_before_absent:
                 out.append(ch)
         return out
+
+    def second_point_channels(self, cap: int) -> List[int]:
+        """档 3A：已测到示向度、却被"无信号"证据挤出 pending 的频道（Q4 才大量出现）。
+
+        为什么值得专程一趟：**示向度本身就是"源存在"的证据**（只有真实源才会返回方向
+        读数）。Q4 里后续补测很可能落在盲侧，于是 no_signal 累积、p_exist 被 (1/2)^m
+        压低，频道被判"无源"退出 pending —— 它因此永远拿不到第二条示向度，定位区域
+        停留在一条射线（无界），永远无法清除。诊断显示这正对应 B 类损失（定向源的
+        23.1%：测到过却没清掉）。故这类频道应**不受无信号证据影响**，其问题二第二点
+        作为必去节点，只受独立排队上限约束。
+        排序：测量次数少的优先（尚未被无信号证据耗尽，源更可能在附近）。
+        """
+        pend = set(self.pending())
+        out: List[int] = []
+        for ch, b in self.beliefs.items():
+            if ch in pend or ch in self.cleared or not b.bearings:
+                continue
+            out.append(ch)
+        out.sort(key=lambda c: self.beliefs[c].n_probes)
+        return out[:max(0, int(cap))]
 
     def absent(self, threshold: float) -> List[int]:
         return [ch for ch in self.channels
