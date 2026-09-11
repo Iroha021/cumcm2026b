@@ -32,14 +32,19 @@ class Recorder(object):
     def __init__(self, inner):
         self.inner = inner
         self.probes = []
+        self.clears = []            # [(channel, (x, y))] 每次 /clear 尝试点
 
     def __call__(self, path, payload):
         st, body = self.inner(path, payload)
-        if path.endswith("/measure") and st == 200 and body.get("accepted"):
-            ch = payload.get("channel")
-            pos = payload.get("position") or {}
-            if ch is not None and "x" in pos:
+        pos = payload.get("position") or {}
+        ch = payload.get("channel")
+        ok = st == 200 and body.get("accepted")
+        if ok and "x" in pos and ch is not None:
+            if path.endswith("/measure"):
                 self.probes.append((int(ch), (float(pos["x"]), float(pos["y"]))))
+            elif path.endswith("/clear"):
+                self.clears.append((int(ch), (float(pos["x"]), float(pos["y"]))))
+        return st, body
         return st, body
 
 
@@ -74,11 +79,21 @@ def classify(sim, world, rec):
                 if s.omni or math.cos(math.radians(s.alpha) - (to_src + math.pi)) > 0.0:
                     front += 1
 
+        n_clear = 0
+        c_min = float("inf")
+        for ch, p in rec.clears:
+            if ch != s.channel:
+                continue
+            n_clear += 1
+            c_min = min(c_min, math.hypot(p[0] - s.pos[0], p[1] - s.pos[1]))
+
         rows.append({"channel": s.channel, "omni": bool(s.omni), "R": round(s.R, 1),
                      "alpha": round(math.degrees(s.alpha), 1), "fate": fate,
                      "n_bearings": n_bear, "n_probes": n_probe,
                      "d_min_m": None if d_min == float("inf") else round(d_min, 1),
                      "n_probe_in_R": in_range, "n_probe_in_R_front": front,
+                     "n_clear": n_clear,
+                     "clear_min_m": None if c_min == float("inf") else round(c_min, 1),
                      "cleared": bool(s.cleared)})
     return rows
 
