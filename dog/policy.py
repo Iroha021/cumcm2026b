@@ -357,30 +357,6 @@ class Policy(object):
             return None
         ordered = self.planner.order(nodes)
         return ordered[0] if ordered else None
-
-    # ------------------------------------------------- 档 6A：近距精定位
-    def _near_fix_point(self, b, d_near: float) -> Optional[Point]:
-        """在"距估计源位置 d_near 的圆周"上取交会角最大的点。
-
-        ±1° 是**角度**误差，横向误差随距离线性放大：在站点环（离源 1000~1300 m）测得的
-        示向度，横向误差 17~23 m，与 20 m 清除半径同量级——这正是官方 33 局演练里
-        41% 清除空挥的直接原因；而在 280 m 处测，横向误差只剩 4.9 m。
-        """
-        est = b.point_estimate()
-        if est is None:
-            return None
-        best = None
-        for deg in range(0, 360, 15):
-            rad = math.radians(deg)
-            P = (float(est[0]) + d_near * math.cos(rad),
-                 float(est[1]) + d_near * math.sin(rad))
-            sc = 0.0
-            for Q, _th in b.bearings:
-                sc = max(sc, routing.crossing_angle_deg(Q, P, (est[0], est[1])))
-            if best is None or sc > best[0]:
-                best = (sc, P)
-        return best[1] if best else None
-
     def _extra_stations(self) -> List[Point]:
         """巡游走完覆盖站点后仍不满足条件的频道 → 追加专程补测点：
 
@@ -398,28 +374,6 @@ class Policy(object):
         for ch in self.world.pending():
             if ch not in chans:
                 chans.append(ch)
-        n_near = 0
-        for ch in chans:
-            if len(out) >= cap:
-                break
-            b = self.world.beliefs[ch]
-            nb = len(b.bearings)
-            if nb == 0:
-                continue
-            # 档 6A：已测到方位但定位还不够准（或清除已空挥过）⇒ 搬到近处重测一次。
-            if (self.mode == "q4" and n_near < int(self.pol.get("near_fix_max_nodes", 4))
-                    and (self.clear_attempts.get(ch, 0) > 0
-                         or b.uncertainty_m() > self.clear_ready_d)):
-                np_ = self._near_fix_point(b, float(self.pol.get("near_fix_dist_m", 280.0)))
-                if np_ is not None:
-                    out.append(np_)
-                    n_near += 1
-                    if self.logger:
-                        self.logger.event("near_fix", channel=ch, P=np_,
-                                          d=float(self.pol.get("near_fix_dist_m", 280.0)),
-                                          unc=round(b.uncertainty_m(), 1),
-                                          misses=self.clear_attempts.get(ch, 0))
-                    continue
             if nb >= 2 and b.uncertainty_m() <= self.clear_ready_d:
                 continue                          # 够准了，只等清除
             if b.n_probes >= int(self.pol.get("max_measures_per_channel", 20)):
