@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="700" viewBox="0 0 860 700">
+<rect width="860" height="700" fill="#ffffff"/>
+<text x="430.0" y="22.0" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="normal" text-anchor="middle" fill="#111">图：算法流程（覆盖巡游—贝叶斯测向定位—在线重规划）</text>
+<rect x="60.0" y="50.0" width="300.0" height="40.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="70.0" y="74.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">开始：/enter，从 (0,0) 频道 1 出发</text>
+<rect x="60.0" y="110.0" width="300.0" height="40.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="70.0" y="134.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">生成覆盖站点（贪心覆盖，7 站，保证 963 m &lt; 1000 m）</text>
+<rect x="60.0" y="170.0" width="300.0" height="40.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="70.0" y="194.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">按价值构建节点集 → 最近邻+2-opt 近似排序</text>
+<rect x="60.0" y="230.0" width="300.0" height="40.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="70.0" y="254.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">当前站点批量测量（换频 1 s + 检测 5 s）</text>
+<rect x="60.0" y="290.0" width="300.0" height="56.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="70.0" y="314.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">观测更新：示向度 / near / 静默</text>
+<text x="70.0" y="329.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">→ 半平面交 + 粒子滤波 + 存在性检验</text>
+<rect x="60.0" y="366.0" width="300.0" height="40.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="70.0" y="390.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">定位够准？（20 m 圆盘后验质量 ≥ 0.25）</text>
+<rect x="430.0" y="366.0" width="340.0" height="40.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="440.0" y="390.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">否：补测——问题二第二点 / GDOP 补点 / 张角增益门槛</text>
+<rect x="60.0" y="426.0" width="300.0" height="40.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="70.0" y="450.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">是：/clear（成功 5 s / 失败 3 s）</text>
+<rect x="430.0" y="426.0" width="340.0" height="40.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="440.0" y="450.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">失败：排除该 20 m 圆盘 → 就地补扫（≤150 m，≤3 次）</text>
+<rect x="60.0" y="486.0" width="300.0" height="40.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="70.0" y="510.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">清除成功 → 该频道结束</text>
+<rect x="60.0" y="546.0" width="300.0" height="40.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="70.0" y="570.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">还有正价值节点？</text>
+<rect x="430.0" y="546.0" width="340.0" height="40.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="440.0" y="570.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">是：重规划后继续巡游（滚动时域）</text>
+<rect x="60.0" y="606.0" width="300.0" height="40.0" rx="6" fill="#f4f7fb" fill-opacity="1.00" stroke="#7f8fa6" stroke-width="1.2"/>
+<text x="70.0" y="630.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#222">否：/exit。第三问要求全部频道已判定（all_resolved）</text>
+<line x1="210.0" y1="90.0" x2="210.0" y2="110.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+<line x1="210.0" y1="150.0" x2="210.0" y2="170.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+<line x1="210.0" y1="210.0" x2="210.0" y2="230.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+<line x1="210.0" y1="270.0" x2="210.0" y2="290.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+<line x1="210.0" y1="346.0" x2="210.0" y2="366.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+<line x1="210.0" y1="406.0" x2="210.0" y2="426.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+<line x1="210.0" y1="466.0" x2="210.0" y2="486.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+<line x1="210.0" y1="526.0" x2="210.0" y2="546.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+<line x1="210.0" y1="586.0" x2="210.0" y2="606.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+<line x1="360.0" y1="386.0" x2="430.0" y2="386.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+<line x1="360.0" y1="446.0" x2="430.0" y2="446.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+<line x1="210.0" y1="506.0" x2="210.0" y2="526.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+<line x1="360.0" y1="566.0" x2="430.0" y2="566.0" stroke="#7f8fa6" stroke-width="1.4" stroke-opacity="1.00"/>
+</svg>

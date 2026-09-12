@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="760" viewBox="0 0 700 760">
+<rect width="700" height="760" fill="#ffffff"/>
+<text x="350.0" y="22.0" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="normal" text-anchor="middle" fill="#111">图：全区域覆盖站点与覆盖圆（7 站，覆盖半径 1200 m）</text>
+<circle cx="300.0" cy="300.0" r="288.0" fill="#f7f9fc" fill-opacity="1.00" stroke="#333" stroke-width="1.6" stroke-opacity="1.00"/>
+<circle cx="307.1" cy="299.1" r="192.0" fill="#2f6fd0" fill-opacity="0.07" stroke="#2f6fd0" stroke-width="0.8" stroke-opacity="0.35"/>
+<circle cx="325.4" cy="107.3" r="192.0" fill="#2f6fd0" fill-opacity="0.07" stroke="#2f6fd0" stroke-width="0.8" stroke-opacity="0.35"/>
+<circle cx="145.8" cy="181.7" r="192.0" fill="#2f6fd0" fill-opacity="0.07" stroke="#2f6fd0" stroke-width="0.8" stroke-opacity="0.35"/>
+<circle cx="120.4" cy="374.4" r="192.0" fill="#2f6fd0" fill-opacity="0.07" stroke="#2f6fd0" stroke-width="0.8" stroke-opacity="0.35"/>
+<circle cx="274.6" cy="492.7" r="192.0" fill="#2f6fd0" fill-opacity="0.07" stroke="#2f6fd0" stroke-width="0.8" stroke-opacity="0.35"/>
+<circle cx="492.9" cy="220.1" r="192.0" fill="#2f6fd0" fill-opacity="0.07" stroke="#2f6fd0" stroke-width="0.8" stroke-opacity="0.35"/>
+<circle cx="465.7" cy="427.1" r="192.0" fill="#2f6fd0" fill-opacity="0.07" stroke="#2f6fd0" stroke-width="0.8" stroke-opacity="0.35"/>
+<circle cx="307.1" cy="299.1" r="4.5" fill="#c0392b" fill-opacity="1.00" stroke="#7b241c" stroke-width="1.0" stroke-opacity="1.00"/>
+<text x="314.1" y="293.1" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#7b241c">P1</text>
+<circle cx="325.4" cy="107.3" r="4.5" fill="#c0392b" fill-opacity="1.00" stroke="#7b241c" stroke-width="1.0" stroke-opacity="1.00"/>
+<text x="332.4" y="101.3" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#7b241c">P2</text>
+<circle cx="145.8" cy="181.7" r="4.5" fill="#c0392b" fill-opacity="1.00" stroke="#7b241c" stroke-width="1.0" stroke-opacity="1.00"/>
+<text x="152.8" y="175.7" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#7b241c">P3</text>
+<circle cx="120.4" cy="374.4" r="4.5" fill="#c0392b" fill-opacity="1.00" stroke="#7b241c" stroke-width="1.0" stroke-opacity="1.00"/>
+<text x="127.4" y="368.4" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#7b241c">P4</text>
+<circle cx="274.6" cy="492.7" r="4.5" fill="#c0392b" fill-opacity="1.00" stroke="#7b241c" stroke-width="1.0" stroke-opacity="1.00"/>
+<text x="281.6" y="486.7" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#7b241c">P5</text>
+<circle cx="492.9" cy="220.1" r="4.5" fill="#c0392b" fill-opacity="1.00" stroke="#7b241c" stroke-width="1.0" stroke-opacity="1.00"/>
+<text x="499.9" y="214.1" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#7b241c">P6</text>
+<circle cx="465.7" cy="427.1" r="4.5" fill="#c0392b" fill-opacity="1.00" stroke="#7b241c" stroke-width="1.0" stroke-opacity="1.00"/>
+<text x="472.7" y="421.1" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#7b241c">P7</text>
+<circle cx="300.0" cy="300.0" r="3.0" fill="#444" fill-opacity="1.00" stroke="#444" stroke-width="1.0" stroke-opacity="1.00"/>
+<text x="308.0" y="314.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#444">起点 (0,0)</text>
+<text x="20.0" y="620.0" font-family="Segoe UI,Arial,sans-serif" font-size="12" font-weight="normal" text-anchor="start" fill="#222">场地半径 1800 m；站点覆盖半径 1200 m（虚线圆）</text>
+<text x="20.0" y="640.0" font-family="Segoe UI,Arial,sans-serif" font-size="12" font-weight="normal" text-anchor="start" fill="#1f6f3f">完备性保证：场地上最差点距最近站点 963 m &lt; 源的有效接收半径下界 1000 m</text>
+<text x="20.0" y="660.0" font-family="Segoe UI,Arial,sans-serif" font-size="12" font-weight="normal" text-anchor="start" fill="#1f6f3f">⇒ 任意位置、任意 R ≥ 1000 m 的全向源，必被至少一个站点的测量捕获</text>
+<text x="20.0" y="690.0" font-family="Segoe UI,Arial,sans-serif" font-size="11" font-weight="normal" text-anchor="start" fill="#666">站点由贪心集合覆盖生成（dog/routing.py::greedy_cover），与算法本体同源</text>
+</svg>

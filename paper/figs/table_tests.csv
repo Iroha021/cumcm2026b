@@ -1,0 +1,4 @@
+﻿case_code,run_id,cleared_sources,avg_clear_virtual_s,program_real_time_s,ended_reason
+PUK6-JNYE-M249-3YAD,20260912-040338-live-q3,10,349.143,2.141,all_resolved
+DCV7-PADT-U89D-JTBG,20260912-041540-live-q3,10,394.745,2.265,all_resolved
+CT8Y-YMNV-HEF6-UTDE,20260912-041931-live-q3,15,257.436,2.187,all_resolved
